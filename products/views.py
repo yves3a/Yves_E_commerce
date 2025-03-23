@@ -9,7 +9,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
 from .serializers import UserSerializer, ProductSerializer, OrderSerializer
 from django.contrib.auth.decorators import login_required
-from .forms import CustomUserCreationForm, OrderForm 
+from .forms import CustomUserCreationForm, OrderForm, UserRegistrationForm
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
@@ -67,37 +67,39 @@ class OrderDetail(generics.RetrieveUpdateDestroyAPIView):
 
 # User Signup View (Form-based)
 def signup_view(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')  # Redirect to dashboard if already logged in
+        
     if request.method == 'POST':
-        form = CustomUserCreationForm(request.POST)
+        form = UserRegistrationForm(request.POST)
         if form.is_valid():
             user = form.save()
             login(request, user)
-            messages.success(request, 'Signup successful! Welcome to the dashboard.')
-            return redirect('user-dashboard')
+            return redirect('dashboard')
     else:
-        form = CustomUserCreationForm()
+        form = UserRegistrationForm()
+    
     return render(request, 'signup.html', {'form': form})
 
 # User Login View
 def login_view(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')  # Redirect to dashboard if already logged in
+        
     if request.method == 'POST':
-        form = AuthenticationForm(data=request.POST)
-        if form.is_valid():
-            username = form.cleaned_data.get('username')
-            password = form.cleaned_data.get('password')
-            user = authenticate(request, username=username, password=password)
-            if user is not None:
-                login(request, user)
-                messages.success(request, 'Login successful!')
-                # Redirect to the appropriate dashboard based on user role
-                return redirect('admin-dashboard' if getattr(user, 'role', None) == 'admin' else 'user-dashboard')
-            else:
-                messages.error(request, 'Invalid username or password')
-    else:
-        form = AuthenticationForm()
-
-    # Ensure the correct path to the login template
-    return render(request, 'login.html', {'form': form})
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        user = authenticate(request, username=username, password=password)
+        
+        if user is not None:
+            login(request, user)
+            # Redirect to the stored 'next' URL or dashboard
+            next_url = request.session.get('next', 'dashboard')
+            return redirect(next_url)
+        else:
+            messages.error(request, 'Invalid username or password.')
+    
+    return render(request, 'login.html')
 
 # User Logout View
 def logout_view(request):
@@ -182,7 +184,6 @@ def product_list(request):
     products = Product.objects.all()
     return render(request, 'product-list.html', {'products': products})
 
-
 @receiver(pre_save, sender=Order)
 def calculate_total_price(sender, instance, **kwargs):
     instance.total_price = instance.quantity * instance.product.price
@@ -191,11 +192,13 @@ def product_details(request, id):
     product = get_object_or_404(Product, id=id)
     return render(request, 'products/product-details.html', {'product': product})
 
-
-
 def product_list(request):
     products = Product.objects.all()
     return render(request, 'product-list.html', {'products': products})
+
+@login_required
+def dashboard_view(request):
+    return render(request, 'user-dashboard.html')
 
 
 
